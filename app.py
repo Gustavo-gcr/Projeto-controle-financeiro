@@ -5,25 +5,23 @@ import plotly.graph_objects as go
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
-import time
+import calendar
 
 # ==============================================================================
-# 1. CONFIGURAÇÃO VISUAL E CSS (UI/UX)
+# 1. CONFIGURAÇÃO VISUAL (UI/UX PREMIUM)
 # ==============================================================================
 st.set_page_config(
-    page_title="Gestão Financeira Pro",
+    page_title="Sistema Financeiro Gustavo",
     layout="wide",
-    page_icon="💳",
+    page_icon="🏦",
     initial_sidebar_state="expanded"
 )
 
-# Tema Dark Moderno com CSS Injetado
+# CSS PROFISSIONAL PARA APARÊNCIA "APP NATIVO"
 st.markdown("""
     <style>
-    /* Fundo geral e fontes */
-    .stApp {
-        background-color: #0e1117;
-    }
+    /* Fundo Dark Moderno */
+    .stApp { background-color: #0e1117; }
     
     /* Sidebar */
     [data-testid="stSidebar"] {
@@ -31,41 +29,44 @@ st.markdown("""
         border-right: 1px solid #30363d;
     }
     
-    /* Cards de Métricas */
+    /* Métricas (Cards) */
     div[data-testid="metric-container"] {
-        background-color: #21262d;
-        border: 1px solid #30363d;
+        background-color: #1f242d;
+        border-left: 5px solid #30363d;
         padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        border-radius: 8px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
     }
     
-    /* Inputs numéricos mais bonitos */
-    .stNumberInput input {
-        background-color: #0d1117 !important;
-        color: white !important;
-        border: 1px solid #30363d !important;
-        border-radius: 5px;
+    /* Abas customizadas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #161b22;
+        border-radius: 4px;
+        color: #fff;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #238636;
+        color: white;
     }
     
     /* Títulos e textos */
-    h1, h2, h3 {
-        color: #f0f6fc !important;
-        font-family: 'Segoe UI', sans-serif;
-    }
+    h1, h2, h3 { color: #e6edf3 !important; font-family: 'Inter', sans-serif; }
+    p, label { color: #c9d1d9 !important; }
     
-    /* Separadores */
-    hr {
-        border-color: #30363d;
-    }
+    /* Inputs */
+    .stNumberInput input { background-color: #0d1117 !important; color: white !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. SISTEMA DE DADOS (BACKEND)
+# 2. MOTOR DE DADOS (CORREÇÃO DE ERROS E NOVA LÓGICA)
 # ==============================================================================
 
-# Dicionário de Tradução para garantir PT-BR
 MAPA_MESES = {
     1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
     5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
@@ -80,24 +81,24 @@ class BancoDeDados:
                 cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred)
             except Exception as e:
-                st.error(f"Erro de conexão: {e}")
+                st.error(f"Erro Crítico de Conexão: {e}")
                 st.stop()
         self.db = firestore.client()
 
     def verificar_usuario(self, email):
         if not email: return False
         try:
-            doc = self.db.collection('usuarios').document(email.strip().lower()).get()
-            return doc.exists
+            return self.db.collection('usuarios').document(email.strip().lower()).get().exists
         except: return False
 
     def pegar_config(self, email):
-        """Busca categorias. Se não existir, cria padrão."""
         doc_ref = self.db.collection('usuarios').document(email)
         doc = doc_ref.get()
+        # Nova estrutura com INVESTIMENTOS separado
         padrao = {
-            'receitas': ['Salário', 'Investimentos', 'Extras'],
-            'despesas': ['Aluguel/Condomínio', 'Mercado', 'Lazer', 'Cartão de Crédito', 'Transporte', 'Assinaturas']
+            'receitas': ['Salário', 'Freelance'],
+            'despesas': ['Aluguel', 'Mercado', 'Lazer', 'Cartão'],
+            'investimentos': ['Poupança', 'CDB', 'Ações', 'Reserva']
         }
         
         if not doc.exists:
@@ -105,64 +106,51 @@ class BancoDeDados:
             return padrao
         
         dados = doc.to_dict()
-        # Garante estrutura mesmo em docs antigos
-        if 'receitas' not in dados:
-            doc_ref.set(padrao, merge=True)
-            return padrao
+        # Garante que a chave 'investimentos' exista (migração automática)
+        if 'investimentos' not in dados:
+            doc_ref.update({'investimentos': padrao['investimentos']})
+            dados['investimentos'] = padrao['investimentos']
         return dados
 
     def salvar_transacao(self, email, mes_ano, categoria, tipo, valor):
-        """Salva com ID único composto: email_mes_categoria"""
-        clean_cat = categoria.replace(" ", "_").lower()
-        doc_id = f"{email}_{mes_ano}_{clean_cat}"
-        
+        # ID único
+        doc_id = f"{email}_{mes_ano}_{categoria.replace(' ', '_').lower()}"
         payload = {
-            'email': email,
-            'mes_ano': mes_ano, # Formato YYYY-MM
-            'categoria': categoria,
-            'tipo': tipo,
-            'valor': float(valor),
-            'timestamp': firestore.SERVER_TIMESTAMP
+            'email': email, 'mes_ano': mes_ano, 'categoria': categoria,
+            'tipo': tipo, 'valor': float(valor), 'timestamp': firestore.SERVER_TIMESTAMP
         }
         self.db.collection('lancamentos').document(doc_id).set(payload)
 
-    def buscar_mes(self, email, mes_ano):
-        """Retorna DF apenas do mês selecionado"""
+    def buscar_dados_gerais(self, email):
+        """
+        CORREÇÃO DO ERRO: Busca TUDO do usuário e filtra no Python (evita erro de índice).
+        """
         ref = self.db.collection('lancamentos')
-        query = ref.where('email', '==', email).where('mes_ano', '==', mes_ano)
+        query = ref.where('email', '==', email)
         docs = query.stream()
-        return pd.DataFrame([d.to_dict() for d in docs])
-
-    def buscar_ano_inteiro(self, email, ano):
-        """Busca tudo que começa com o Ano (ex: 2026-*)"""
-        # Firestore não tem 'startswith' nativo fácil, então pegamos intervalo
-        start = f"{ano}-01"
-        end = f"{ano}-12"
-        
-        ref = self.db.collection('lancamentos')
-        query = ref.where('email', '==', email).where('mes_ano', '>=', start).where('mes_ano', '<=', end)
-        docs = query.stream()
-        return pd.DataFrame([d.to_dict() for d in docs])
+        lista = [d.to_dict() for d in docs]
+        return pd.DataFrame(lista)
 
     def add_categoria(self, email, tipo, nova_cat):
-        key = 'receitas' if tipo == 'Receita' else 'despesas'
-        self.db.collection('usuarios').document(email).update({
-            key: firestore.ArrayUnion([nova_cat])
-        })
+        # Mapeia o tipo para a chave correta no banco
+        mapa = {'Receita': 'receitas', 'Despesa': 'despesas', 'Investimento': 'investimentos'}
+        key = mapa.get(tipo)
+        if key:
+            self.db.collection('usuarios').document(email).update({key: firestore.ArrayUnion([nova_cat])})
 
 db = BancoDeDados()
 
 # ==============================================================================
-# 3. INTERFACE (FRONTEND)
+# 3. INTERFACE INTELIGENTE
 # ==============================================================================
 
 def login_screen():
-    c1, c2, c3 = st.columns([1, 1.5, 1])
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
-        st.markdown("<br><br><h1 style='text-align: center;'>🔐 Acesso Restrito</h1>", unsafe_allow_html=True)
+        st.markdown("<br><br><h1 style='text-align: center;'>🔐 Acesso</h1>", unsafe_allow_html=True)
         with st.form("login"):
             email = st.text_input("E-mail Cadastrado").strip().lower()
-            if st.form_submit_button("ENTRAR", use_container_width=True):
+            if st.form_submit_button("Entrar", use_container_width=True):
                 if db.verificar_usuario(email):
                     st.session_state['user'] = email
                     st.rerun()
@@ -172,198 +160,204 @@ def login_screen():
 def main_app():
     user = st.session_state['user']
     
-    # --- BARRA LATERAL (NAVEGAÇÃO COMPLETA) ---
+    # --- SIDEBAR FIXA ---
     with st.sidebar:
-        st.title(f"Olá, {user.split('@')[0].title()}")
-        st.markdown("---")
+        st.title(f"👤 {user.split('@')[0].title()}")
+        if st.button("Sair", use_container_width=True):
+            st.session_state['user'] = None
+            st.rerun()
+        st.divider()
         
-        # 1. Seletor de Data
-        st.header("📅 Período")
+        st.header("🗓️ Data")
         ano_atual = datetime.now().year
         sel_ano = st.selectbox("Ano", [ano_atual-1, ano_atual, ano_atual+1], index=1)
         
-        # Mapa reverso para pegar o número do mês pelo nome em PT
-        nomes_meses = list(MAPA_MESES.values())
         mes_atual_idx = datetime.now().month - 1
-        sel_mes_nome = st.selectbox("Mês", nomes_meses, index=mes_atual_idx)
+        sel_mes_nome = st.selectbox("Mês", list(MAPA_MESES.values()), index=mes_atual_idx)
         
-        # Converter para YYYY-MM (Ex: 2026-02)
+        # Chave YYYY-MM
         mes_num = [k for k, v in MAPA_MESES.items() if v == sel_mes_nome][0]
         mes_chave = f"{sel_ano}-{mes_num:02d}"
         
-        st.caption(f"Editando dados de: **{sel_mes_nome}/{sel_ano}**")
-        st.markdown("---")
+        st.info(f"Visualizando: **{sel_mes_nome}/{sel_ano}**")
         
-        # 2. Menu Principal
-        menu = st.radio(
-            "Navegação", 
-            ["📊 Visão Mensal", "💰 Lançamentos", "📈 Visão Anual", "⚙️ Configurações"]
+        # MENU PRINCIPAL (SIMPLES E DIRETO)
+        menu = st.radio("Menu", 
+            ["📝 Lançamentos", "📊 Dashboard Mensal", "📈 Visão Anual", "⚙️ Categorias"],
         )
-        
-        st.markdown("---")
-        if st.button("Sair"):
-            st.session_state['user'] = None
-            st.rerun()
 
-    # --- CARREGAR DADOS ---
+    # Carregar Dados (Busca otimizada)
+    df_full = db.buscar_dados_gerais(user)
     config = db.pegar_config(user)
-    df_mes = db.buscar_mes(user, mes_chave)
     
-    # Criar dicionário de valores existentes para preencher inputs
-    # Se não tiver dado no banco, retorna 0.0
+    # Filtra dados do mês selecionado localmente
+    if not df_full.empty:
+        df_mes = df_full[df_full['mes_ano'] == mes_chave]
+    else:
+        df_mes = pd.DataFrame()
+        
     val_map = {row['categoria']: row['valor'] for _, row in df_mes.iterrows()} if not df_mes.empty else {}
 
-    # --- PÁGINA: LANÇAMENTOS ---
-    if menu == "💰 Lançamentos":
-        st.title(f"Lançamentos: {sel_mes_nome} de {sel_ano}")
-        st.markdown("Altere os valores abaixo. **O salvamento é automático ao sair do campo.**")
+    # --- ABA 1: LANÇAMENTOS (3 COLUNAS) ---
+    if menu == "📝 Lançamentos":
+        st.header(f"Gestão de Caixa: {sel_mes_nome}")
+        st.caption("Preencha os valores. O salvamento é automático ao sair do campo.")
         
-        col1, col2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         
-        with col1:
-            st.subheader("📥 Receitas (Entradas)")
-            with st.container():
-                total_rec = 0.0
-                for cat in config['receitas']:
-                    # O SEGREDO DO BUG: O 'key' precisa ter o 'mes_chave'
-                    # Assim, quando muda o mês, o Streamlit reseta o input
-                    unique_key = f"in_{mes_chave}_{cat}"
-                    valor_atual = val_map.get(cat, 0.0)
-                    
-                    novo_val = st.number_input(
-                        f"{cat}", 
-                        value=float(valor_atual), 
-                        min_value=0.0, 
-                        step=50.0,
-                        key=unique_key
-                    )
-                    
-                    if novo_val != valor_atual:
-                        db.salvar_transacao(user, mes_chave, cat, 'Receita', novo_val)
-                    
-                    total_rec += novo_val
-                st.success(f"Total Receitas: R$ {total_rec:,.2f}")
+        # Coluna 1: Entradas
+        with c1:
+            st.subheader("🟢 Entradas")
+            with st.container(border=True):
+                tot_rec = 0.0
+                for cat in config.get('receitas', []):
+                    key_uniq = f"in_{mes_chave}_{cat}"
+                    val = st.number_input(f"{cat}", value=float(val_map.get(cat, 0.0)), step=100.0, key=key_uniq)
+                    if val != val_map.get(cat, 0.0): db.salvar_transacao(user, mes_chave, cat, 'Receita', val)
+                    tot_rec += val
+                st.metric("Total Receitas", f"R$ {tot_rec:,.2f}")
 
-        with col2:
-            st.subheader("📤 Despesas (Saídas)")
-            with st.container():
-                total_desp = 0.0
-                for cat in config['despesas']:
-                    unique_key = f"out_{mes_chave}_{cat}"
-                    valor_atual = val_map.get(cat, 0.0)
-                    
-                    novo_val = st.number_input(
-                        f"{cat}", 
-                        value=float(valor_atual), 
-                        min_value=0.0, 
-                        step=50.0,
-                        key=unique_key
-                    )
-                    
-                    if novo_val != valor_atual:
-                        db.salvar_transacao(user, mes_chave, cat, 'Despesa', novo_val)
-                    
-                    total_desp += novo_val
-                st.error(f"Total Despesas: R$ {total_desp:,.2f}")
+        # Coluna 2: Investimentos (NOVA LÓGICA)
+        with c2:
+            st.subheader("🔵 Investimentos")
+            with st.container(border=True):
+                tot_inv = 0.0
+                for cat in config.get('investimentos', []):
+                    key_uniq = f"inv_{mes_chave}_{cat}"
+                    val = st.number_input(f"{cat}", value=float(val_map.get(cat, 0.0)), step=100.0, key=key_uniq)
+                    if val != val_map.get(cat, 0.0): db.salvar_transacao(user, mes_chave, cat, 'Investimento', val)
+                    tot_inv += val
+                st.metric("Total Guardado", f"R$ {tot_inv:,.2f}")
 
-    # --- PÁGINA: VISÃO MENSAL ---
-    elif menu == "📊 Visão Mensal":
-        st.title(f"Dashboard: {sel_mes_nome}/{sel_ano}")
+        # Coluna 3: Despesas
+        with c3:
+            st.subheader("🔴 Despesas")
+            with st.container(border=True):
+                tot_desp = 0.0
+                for cat in config.get('despesas', []):
+                    key_uniq = f"out_{mes_chave}_{cat}"
+                    val = st.number_input(f"{cat}", value=float(val_map.get(cat, 0.0)), step=50.0, key=key_uniq)
+                    if val != val_map.get(cat, 0.0): db.salvar_transacao(user, mes_chave, cat, 'Despesa', val)
+                    tot_desp += val
+                st.metric("Total Gastos", f"R$ {tot_desp:,.2f}")
+
+    # --- ABA 2: DASHBOARD MENSAL ---
+    elif menu == "📊 Dashboard Mensal":
+        st.header(f"Análise: {sel_mes_nome}/{sel_ano}")
         
         if df_mes.empty:
-            st.info("Nenhum dado lançado neste mês. Vá na aba 'Lançamentos'.")
+            st.warning("Preencha os lançamentos primeiro.")
         else:
             rec = df_mes[df_mes['tipo']=='Receita']['valor'].sum()
             desp = df_mes[df_mes['tipo']=='Despesa']['valor'].sum()
-            saldo = rec - desp
+            inv = df_mes[df_mes['tipo']=='Investimento']['valor'].sum()
             
-            # 1. KPIs
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Receita Total", f"R$ {rec:,.2f}")
-            k2.metric("Despesa Total", f"R$ {desp:,.2f}", delta=-desp, delta_color="inverse")
-            k3.metric("Saldo em Caixa", f"R$ {saldo:,.2f}", delta=saldo)
+            # LÓGICA CORRIGIDA:
+            sobra_caixa = rec - desp - inv  # O que sobrou na conta corrente
+            
+            # KPIs
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Ganhos", f"R$ {rec:,.2f}", border=True)
+            k2.metric("Gastos", f"R$ {desp:,.2f}", delta=-desp, delta_color="inverse", border=True)
+            k3.metric("Investido", f"R$ {inv:,.2f}", delta=inv, delta_color="normal", border=True)
+            k4.metric("Sobra em Caixa", f"R$ {sobra_caixa:,.2f}", 
+                      delta_color="off" if sobra_caixa > 0 else "inverse", 
+                      help="Receita - Despesa - Investimento", border=True)
             
             st.divider()
             
-            # 2. Gráficos
-            g1, g2 = st.columns([1, 2])
+            # GRÁFICO SANKEY (FLUXO DO DINHEIRO)
+            st.subheader("Caminho do Dinheiro")
+            st.caption("Como sua renda se divide entre Gastos, Investimentos e Sobra.")
             
-            with g1:
-                st.subheader("Para onde foi o dinheiro?")
-                df_desp = df_mes[df_mes['tipo']=='Despesa']
-                if not df_desp.empty:
-                    # Gráfico de Rosca (Donut) mais elegante
-                    fig = px.pie(df_desp, values='valor', names='categoria', hole=0.6, 
-                                 color_discrete_sequence=px.colors.sequential.RdBu)
-                    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.caption("Sem despesas cadastradas.")
+            cats_desp = df_mes[df_mes['tipo']=='Despesa']['categoria'].tolist()
+            vals_desp = df_mes[df_mes['tipo']=='Despesa']['valor'].tolist()
             
-            with g2:
-                st.subheader("Balanço Visual")
-                # Gráfico de Barras Horizontal
-                df_bar = df_mes.groupby('tipo')['valor'].sum().reset_index()
-                fig_bar = px.bar(df_bar, x='valor', y='tipo', orientation='h', 
-                                 color='tipo', color_discrete_map={'Receita':'#00cc96', 'Despesa':'#ef553b'},
-                                 text_auto='.2s')
-                fig_bar.update_layout(height=250, margin=dict(t=0, b=0, l=0, r=0))
-                st.plotly_chart(fig_bar, use_container_width=True)
+            cats_inv = df_mes[df_mes['tipo']=='Investimento']['categoria'].tolist()
+            vals_inv = df_mes[df_mes['tipo']=='Investimento']['valor'].tolist()
+            
+            label = ["Receita"] + cats_desp + cats_inv + ["Sobra em Caixa"]
+            source = []
+            target = []
+            value = []
+            
+            # Links Receita -> Categorias
+            rec_idx = 0
+            curr_idx = 1
+            
+            # Despesas
+            for v in vals_desp:
+                source.append(rec_idx); target.append(curr_idx); value.append(v); curr_idx+=1
+            # Investimentos
+            for v in vals_inv:
+                source.append(rec_idx); target.append(curr_idx); value.append(v); curr_idx+=1
+            # Sobra
+            if sobra_caixa > 0:
+                source.append(rec_idx); target.append(curr_idx); value.append(sobra_caixa)
+                
+            fig_sankey = go.Figure(data=[go.Sankey(
+                node = dict(label = label, pad = 20, thickness = 20, color = "#238636"),
+                link = dict(source = source, target = target, value = value)
+            )])
+            fig_sankey.update_layout(height=400, margin=dict(l=0,r=0,t=20,b=20), paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_sankey, use_container_width=True)
 
-    # --- PÁGINA: VISÃO ANUAL (NOVA) ---
+    # --- ABA 3: VISÃO ANUAL (CORRIGIDA) ---
     elif menu == "📈 Visão Anual":
-        st.title(f"Relatório Anual - {sel_ano}")
+        st.header(f"Panorama Anual: {sel_ano}")
         
-        df_ano = db.buscar_ano_inteiro(user, sel_ano)
-        
-        if df_ano.empty:
-            st.warning(f"Não há registros em {sel_ano} ainda.")
+        # Filtro Python (Evita erro do Firebase)
+        if not df_full.empty:
+            df_ano = df_full[df_full['mes_ano'].str.startswith(str(sel_ano))].copy()
         else:
-            # Agregação por Mês e Tipo
-            df_agg = df_ano.groupby(['mes_ano', 'tipo'])['valor'].sum().reset_index().sort_values('mes_ano')
+            df_ano = pd.DataFrame()
             
-            # Gráfico de Evolução (Linha/Area)
-            st.subheader("Evolução Financeira")
-            fig_area = px.area(df_agg, x='mes_ano', y='valor', color='tipo', 
-                               color_discrete_map={'Receita':'#00cc96', 'Despesa':'#ef553b'},
-                               markers=True)
-            fig_area.update_layout(xaxis_title="Mês", yaxis_title="Valor (R$)")
-            st.plotly_chart(fig_area, use_container_width=True)
+        if df_ano.empty:
+            st.info("Sem dados neste ano.")
+        else:
+            # Tabela Resumo
+            df_pivot = df_ano.pivot_table(index='mes_ano', columns='tipo', values='valor', aggfunc='sum', fill_value=0)
+            if 'Receita' not in df_pivot: df_pivot['Receita'] = 0
+            if 'Despesa' not in df_pivot: df_pivot['Despesa'] = 0
+            if 'Investimento' not in df_pivot: df_pivot['Investimento'] = 0
             
-            st.divider()
+            # Evolução Patrimonial (Acumulado)
+            df_pivot['Patrimonio_Mes'] = df_pivot['Investimento']
+            df_pivot['Patrimonio_Acumulado'] = df_pivot['Patrimonio_Mes'].cumsum()
             
-            # Tabela Resumo (Pivot Table)
-            st.subheader("Extrato Detalhado do Ano")
-            pivot = df_ano.pivot_table(index='categoria', columns='mes_ano', values='valor', aggfunc='sum', fill_value=0)
-            # Adiciona coluna de Total
-            pivot['TOTAL ANUAL'] = pivot.sum(axis=1)
-            # Formatação
-            st.dataframe(pivot.style.format("R$ {:,.2f}"), use_container_width=True, height=400)
+            # GRÁFICO DE EVOLUÇÃO
+            st.subheader("Crescimento de Patrimônio")
+            st.caption("Quanto você tem acumulado em investimentos ao longo do tempo.")
+            
+            fig_line = px.line(df_pivot, x=df_pivot.index, y='Patrimonio_Acumulado', markers=True)
+            fig_line.update_traces(line_color='#238636', line_width=4)
+            fig_line.update_layout(yaxis_title="Total Acumulado (R$)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_line, use_container_width=True)
+            
+            # GRÁFICO COMPARATIVO
+            st.subheader("Receita vs Despesa vs Aportes")
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(x=df_pivot.index, y=df_pivot['Receita'], name='Receita', marker_color='#2f81f7'))
+            fig_bar.add_trace(go.Bar(x=df_pivot.index, y=df_pivot['Despesa'], name='Despesa', marker_color='#da3633'))
+            fig_bar.add_trace(go.Bar(x=df_pivot.index, y=df_pivot['Investimento'], name='Investido', marker_color='#238636'))
+            fig_bar.update_layout(barmode='group', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    # --- PÁGINA: CONFIGURAÇÕES ---
-    elif menu == "⚙️ Configurações":
-        st.title("Configurações do Sistema")
-        
-        c1, c2 = st.columns(2)
+    # --- ABA 4: CATEGORIAS ---
+    elif menu == "⚙️ Categorias":
+        st.header("Personalizar Sistema")
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.info("Adicionar Fonte de Receita")
-            nova_rec = st.text_input("Nome da nova receita")
-            if st.button("Adicionar Receita"):
-                db.add_categoria(user, 'Receita', nova_rec)
-                st.success("Adicionado! Atualize a página.")
-        
+            if n := st.text_input("Nova Receita"):
+                if st.button("Add Rec"): db.add_categoria(user, 'Receita', n); st.rerun()
         with c2:
-            st.info("Adicionar Tipo de Despesa")
-            nova_desp = st.text_input("Nome da nova despesa")
-            if st.button("Adicionar Despesa"):
-                db.add_categoria(user, 'Despesa', nova_desp)
-                st.success("Adicionado! Atualize a página.")
+            if n := st.text_input("Novo Investimento"):
+                if st.button("Add Inv"): db.add_categoria(user, 'Investimento', n); st.rerun()
+        with c3:
+            if n := st.text_input("Nova Despesa"):
+                if st.button("Add Desp"): db.add_categoria(user, 'Despesa', n); st.rerun()
 
-# --- ROTEAMENTO ---
-if 'user' not in st.session_state:
-    st.session_state['user'] = None
-
-if st.session_state['user']:
-    main_app()
-else:
-    login_screen()
+# --- EXECUÇÃO ---
+if 'user' not in st.session_state: st.session_state['user'] = None
+if st.session_state['user']: main_app()
+else: login_screen()
